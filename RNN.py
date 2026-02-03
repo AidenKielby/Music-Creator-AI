@@ -19,13 +19,17 @@ class NeuralNetwork:
         self.hiddenBiases = self.initBiases(neuronsInHiddenLayer)
 
         self.preActivations = [
-            #One  of these for each use of RNN
-            #        | | |
-            #        v v v 
-            []
         ]
+
+        self.inputs = []
         self.uses = 0
         self.activationFunction = activationFunction
+
+        # backprop stuff
+        self.outputLayerErrors = []
+        self.hiddenGradients = []
+        self.inputGradients = []
+
     
     def sigmoid(self, x):
         return 1 / (1 + (math.pow(math.e, -x)))
@@ -36,19 +40,21 @@ class NeuralNetwork:
     def leakyReLU_derivative(self, x):
         return 1 if x > 0 else 0.1
 
-    def useActivationFunction(self, x: int):
+    def useActivationFunction(self, x: float):
         if self.activationFunction == "Leaky_ReLU":
             return self.leakyReLU(x)
         if self.activationFunction == "Sigmoid":
             return self.sigmoid(x)
+        
+    def useActivationFunctionDeriviative(self, x: float):
+        if self.activationFunction == "Leaky_ReLU":
+            return self.leakyReLU_derivative(x)
+        if self.activationFunction == "Sigmoid":
+            return x * (1 - x) 
 
     def resetUses(self):
         self.uses = 0
         self.preActivations = [
-            #One  of these for each use of RNN
-            #        | | |
-            #        v v v 
-            [[] for x in range(self.hiddenLayers + 2)]
         ]
 
     def initWeights(self, fan_in, fan_out):
@@ -57,7 +63,8 @@ class NeuralNetwork:
     def initBiases(self, neurons: int):
         return np.random.uniform(-0.1, 0.1, neurons)
     
-    def forewardPass(self, inputs: list[float]):
+    def forwardPass(self, inputs: list[float]):
+        self.inputs.append(inputs)
         if self.uses == 0:
             lastActivtion = np.zeros(self.neuronsPerHiddenLayer)
         else:
@@ -73,10 +80,30 @@ class NeuralNetwork:
         neuronOutput = self.useActivationFunction(np.asarray(hiddenActivations) @ np.asarray(self.weights) + np.asarray(self.biases))
 
         return neuronOutput
-
-
-
-
-
     
+    def backPropagate(self, expectedOutput: list[float], lastOutput: list[float], learningRate: float):
+        outputLayerError = np.asarray(lastOutput) - np.asarray(expectedOutput)
+        self.outputLayerErrors.append(outputLayerError)
 
+        PreActs = np.vstack(self.preActivations)
+        outputErrors = np.vstack(self.outputLayerErrors)
+        hiddenToOutputWeightGradients = np.transpose(outputErrors) @ PreActs
+
+        self.weights = np.asmatrix(self.weights) - (np.asmatrix(hiddenToOutputWeightGradients) * learningRate)
+        self.biases -= np.sum(outputErrors, axis=0) * learningRate
+
+        futureError = 0
+        recurrentWeightGrads = []
+        inputWeightGrads = []
+        for t in range(len(self.preActivations)-1, -1, -1):
+            localError = np.transpose(np.asmatrix(self.weights)) @ self.outputLayerErrors[t]
+            bothErrors = localError + self.memoryWeights.T @ futureError
+            delta_hidden = bothErrors * self.useActivationFunctionDeriviative(self.preActivations[t])
+            prev_hidden = np.zeros(self.neuronsPerHiddenLayer) if t == 0 else self.preActivations[t-1]
+            recurrentWeightGrads.append(np.outer(delta_hidden, prev_hidden))
+            inputWeightGrads.append(np.outer(delta_hidden, self.inputs[t]))
+            futureError = delta_hidden
+
+        self.memoryWeights = self.memoryWeights - (np.sum(recurrentWeightGrads, axis=0) * learningRate)
+        self.hiddenWeights = self.hiddenWeights - (np.sum(inputWeightGrads, axis=0) * learningRate)
+        
